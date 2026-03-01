@@ -435,10 +435,11 @@ def test_400_raises_validation_error(
 def test_429_raises_rate_limit(
     client: LocationRegistrySyncClient,
 ) -> None:
-    respx.get(f"{BASE_URL}/buildings").mock(
+    route = respx.get(f"{BASE_URL}/buildings")
+    route.mock(
         return_value=httpx.Response(
             429,
-            headers={"Retry-After": "30"},
+            headers={"Retry-After": "0.01"},
             json=_error_envelope(
                 "RATE_LIMITED", "Too many requests",
             ),
@@ -447,7 +448,37 @@ def test_429_raises_rate_limit(
 
     with pytest.raises(RateLimitError) as exc_info:
         client.search_buildings()
-    assert exc_info.value.retry_after == 30.0
+    assert exc_info.value.retry_after == 0.01
+    # 429 is retried — call count equals max_retries
+    assert route.call_count == 2
+    client.close()
+
+
+@respx.mock
+def test_429_retries_then_succeeds(
+    client: LocationRegistrySyncClient,
+    sample_building_payload: dict,
+) -> None:
+    route = respx.get(
+        f"{BASE_URL}/buildings/77C2XF2G%2B4V",
+    )
+    route.side_effect = [
+        httpx.Response(
+            429,
+            headers={"Retry-After": "0.01"},
+            json=_error_envelope(
+                "RATE_LIMITED", "Too many requests",
+            ),
+        ),
+        httpx.Response(
+            200,
+            json=_api_envelope(sample_building_payload),
+        ),
+    ]
+
+    building = client.get_building("77C2XF2G+4V")
+    assert isinstance(building, Building)
+    assert route.call_count == 2
     client.close()
 
 

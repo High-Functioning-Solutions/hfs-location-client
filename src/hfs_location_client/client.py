@@ -15,7 +15,6 @@ from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
-    wait_exponential_jitter,
 )
 
 from hfs_location_client._circuit_breaker import CircuitBreaker
@@ -25,6 +24,7 @@ from hfs_location_client._shared import (
     build_params,
     map_error,
     parse_paginated,
+    rate_limit_aware_wait,
 )
 from hfs_location_client.exceptions import RateLimitError
 from hfs_location_client.models import (
@@ -294,11 +294,13 @@ class LocationRegistryClient:
         try:
             retrying = retry(
                 stop=stop_after_attempt(self._max_retries),
-                wait=wait_exponential_jitter(
-                    initial=0.5, max=4.0, jitter=0.5,
-                ),
+                wait=rate_limit_aware_wait,
                 retry=retry_if_exception_type(
-                    (ServerError, httpx.TransportError),
+                    (
+                        ServerError,
+                        httpx.TransportError,
+                        RateLimitError,
+                    ),
                 ),
                 reraise=True,
             )
