@@ -1,7 +1,7 @@
-"""Async client for Location Registry API.
+"""Synchronous client for Location Registry API.
 
-Provides typed methods for all read endpoints with automatic retry
-(tenacity) and circuit breaker protection.
+Provides the same typed interface as LocationRegistryClient but using
+httpx.Client (blocking) for Flask/sync consumers like Clinic Connect.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from hfs_location_client._circuit_breaker import CircuitBreaker
 from hfs_location_client._shared import (
     NON_RETRYABLE_CODES,
     ServerError,
@@ -26,6 +25,7 @@ from hfs_location_client._shared import (
     map_error,
     parse_paginated,
 )
+from hfs_location_client._sync_circuit_breaker import SyncCircuitBreaker
 from hfs_location_client.exceptions import RateLimitError
 from hfs_location_client.models import (
     Building,
@@ -42,17 +42,17 @@ from hfs_location_client.models import (
 logger = logging.getLogger(__name__)
 
 
-class LocationRegistryClient:
-    """Async client for Location Registry API.
+class LocationRegistrySyncClient:
+    """Synchronous client for Location Registry API.
 
     Usage::
 
-        client = LocationRegistryClient(
+        client = LocationRegistrySyncClient(
             base_url="http://localhost:5001/api/v1",
             api_key="lr_live_key_...",
         )
-        building = await client.get_building("77C2XF2G+4V")
-        await client.close()
+        building = client.get_building("77C2XF2G+4V")
+        client.close()
 
     All public methods return typed Pydantic models.
     """
@@ -67,12 +67,12 @@ class LocationRegistryClient:
         circuit_breaker_reset: float = 30.0,
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._http = httpx.AsyncClient(
+        self._http = httpx.Client(
             base_url=self._base_url,
             headers={"X-Api-Key": api_key},
             timeout=timeout,
         )
-        self._circuit = CircuitBreaker(
+        self._circuit = SyncCircuitBreaker(
             failure_threshold=circuit_breaker_threshold,
             recovery_timeout=circuit_breaker_reset,
         )
@@ -80,13 +80,13 @@ class LocationRegistryClient:
 
     # ── Buildings ────────────────────────────────────────────────────
 
-    async def get_building(self, plus_code: str) -> Building:
+    def get_building(self, plus_code: str) -> Building:
         """Get a building by its Plus Code."""
         path = f"/buildings/{quote(plus_code, safe='')}"
-        data = await self._request("GET", path)
+        data = self._request("GET", path)
         return Building.model_validate(data)
 
-    async def search_buildings(
+    def search_buildings(
         self,
         *,
         island_id: str | None = None,
@@ -109,7 +109,7 @@ class LocationRegistryClient:
             cursor=cursor,
             limit=limit,
         )
-        envelope = await self._request(
+        envelope = self._request(
             "GET", "/buildings",
             params=params, parse_envelope=False,
         )
@@ -117,12 +117,12 @@ class LocationRegistryClient:
 
     # ── Roads ────────────────────────────────────────────────────────
 
-    async def get_road(self, road_id: str) -> Road:
+    def get_road(self, road_id: str) -> Road:
         """Get a road by its UUID."""
-        data = await self._request("GET", f"/roads/{road_id}")
+        data = self._request("GET", f"/roads/{road_id}")
         return Road.model_validate(data)
 
-    async def search_roads(
+    def search_roads(
         self,
         *,
         island_id: str | None = None,
@@ -147,7 +147,7 @@ class LocationRegistryClient:
             cursor=cursor,
             limit=limit,
         )
-        envelope = await self._request(
+        envelope = self._request(
             "GET", "/roads",
             params=params, parse_envelope=False,
         )
@@ -155,18 +155,18 @@ class LocationRegistryClient:
 
     # ── Geocoding ────────────────────────────────────────────────────
 
-    async def reverse_geocode(
+    def reverse_geocode(
         self, lat: float, lng: float,
     ) -> ReverseGeocodeResult:
         """Reverse geocode coordinates to nearest location."""
-        data = await self._request(
+        data = self._request(
             "GET", "/reverse", params={"lat": lat, "lng": lng},
         )
         return ReverseGeocodeResult.model_validate(data)
 
-    async def geocode(self, query: str) -> list[GeocodeResult]:
+    def geocode(self, query: str) -> list[GeocodeResult]:
         """Text geocode — search locations by query string."""
-        data = await self._request(
+        data = self._request(
             "GET", "/geocode", params={"q": query},
         )
         if isinstance(data, list):
@@ -175,26 +175,26 @@ class LocationRegistryClient:
 
     # ── Plus Code ────────────────────────────────────────────────────
 
-    async def encode_plus_code(
+    def encode_plus_code(
         self, lat: float, lng: float,
     ) -> PlusCodeResult:
         """Encode latitude/longitude to a Plus Code."""
         params = {"lat": lat, "lng": lng}
-        data = await self._request(
+        data = self._request(
             "GET", "/pluscode/encode", params=params,
         )
         return PlusCodeResult.model_validate(data)
 
-    async def decode_plus_code(self, code: str) -> PlusCodeResult:
+    def decode_plus_code(self, code: str) -> PlusCodeResult:
         """Decode a Plus Code to coordinates and bounds."""
-        data = await self._request(
+        data = self._request(
             "GET", "/pluscode/decode", params={"code": code},
         )
         return PlusCodeResult.model_validate(data)
 
-    async def validate_plus_code(self, code: str) -> bool:
+    def validate_plus_code(self, code: str) -> bool:
         """Check if a Plus Code string is valid."""
-        data = await self._request(
+        data = self._request(
             "GET", "/pluscode/validate", params={"code": code},
         )
         if isinstance(data, dict):
@@ -203,49 +203,49 @@ class LocationRegistryClient:
 
     # ── Islands ──────────────────────────────────────────────────────
 
-    async def list_islands(self) -> list[Island]:
+    def list_islands(self) -> list[Island]:
         """List all island groups."""
-        data = await self._request("GET", "/islands")
+        data = self._request("GET", "/islands")
         if isinstance(data, list):
             return [Island.model_validate(i) for i in data]
         return [Island.model_validate(data)]
 
-    async def get_island(self, id_or_name: str) -> Island:
+    def get_island(self, id_or_name: str) -> Island:
         """Get an island by ID or name."""
         path = f"/islands/{quote(id_or_name, safe='')}"
-        data = await self._request("GET", path)
+        data = self._request("GET", path)
         return Island.model_validate(data)
 
-    async def get_island_stats(
+    def get_island_stats(
         self, id_or_name: str,
     ) -> IslandStats:
         """Get coverage statistics for a specific island."""
         path = f"/islands/{quote(id_or_name, safe='')}/stats"
-        data = await self._request("GET", path)
+        data = self._request("GET", path)
         return IslandStats.model_validate(data)
 
     # ── Health ───────────────────────────────────────────────────────
 
-    async def health_check(self) -> HealthStatus:
+    def health_check(self) -> HealthStatus:
         """Check API readiness (database + redis)."""
-        data = await self._request("GET", "/health/ready")
+        data = self._request("GET", "/health/ready")
         return HealthStatus.model_validate(data)
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
-    async def close(self) -> None:
+    def close(self) -> None:
         """Close the underlying HTTP client."""
-        await self._http.aclose()
+        self._http.close()
 
-    async def __aenter__(self) -> LocationRegistryClient:
+    def __enter__(self) -> LocationRegistrySyncClient:
         return self
 
-    async def __aexit__(self, *args: object) -> None:
-        await self.close()
+    def __exit__(self, *args: object) -> None:
+        self.close()
 
     # ── Internal ─────────────────────────────────────────────────────
 
-    async def _request(
+    def _request(
         self,
         method: str,
         path: str,
@@ -255,8 +255,8 @@ class LocationRegistryClient:
     ) -> Any:
         """Core request method with circuit breaker + retry."""
 
-        async def _do_request() -> Any:
-            response = await self._http.request(
+        def _do_request() -> Any:
+            response = self._http.request(
                 method, path, params=params,
             )
 
@@ -302,8 +302,6 @@ class LocationRegistryClient:
                 ),
                 reraise=True,
             )
-            return await self._circuit.call(
-                retrying(_do_request),
-            )
+            return self._circuit.call(retrying(_do_request))
         except ServerError as exc:
             raise exc.original from exc

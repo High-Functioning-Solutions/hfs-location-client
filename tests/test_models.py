@@ -3,7 +3,6 @@
 from hfs_location_client.models import (
     Building,
     GeocodeResult,
-    HealthChecks,
     HealthStatus,
     Island,
     IslandStats,
@@ -56,7 +55,10 @@ def test_island_stats_from_payload(sample_island_stats_payload: dict) -> None:
     assert stats.total_road_length_km == 1450.2
 
 
-def test_reverse_geocode_result(sample_building_payload: dict, sample_road_payload: dict) -> None:
+def test_reverse_geocode_result(
+    sample_building_payload: dict,
+    sample_road_payload: dict,
+) -> None:
     payload = {
         "plus_code": "77C2XF2G+4V",
         "nearest_building": sample_building_payload,

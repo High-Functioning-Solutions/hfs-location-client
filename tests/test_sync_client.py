@@ -1,10 +1,9 @@
-"""Tests for LocationRegistryClient using respx mocking."""
+"""Tests for LocationRegistrySyncClient using respx mocking."""
 
 import httpx
 import pytest
 import respx
 
-from hfs_location_client import LocationRegistryClient
 from hfs_location_client.exceptions import (
     CircuitOpenError,
     NotFoundError,
@@ -23,14 +22,13 @@ from hfs_location_client.models import (
     ReverseGeocodeResult,
     Road,
 )
+from hfs_location_client.sync_client import LocationRegistrySyncClient
 
 BASE_URL = "http://lr-test.local/api/v1"
 API_KEY = "lr_test_key_abc123"
 
 
-def _api_envelope(
-    data: object, message: str | None = None,
-) -> dict:
+def _api_envelope(data: object, message: str | None = None) -> dict:
     """Wrap data in standard API response envelope."""
     return {
         "success": True,
@@ -75,8 +73,8 @@ def _error_envelope(code: str, message: str) -> dict:
 
 
 @pytest.fixture
-def client() -> LocationRegistryClient:
-    return LocationRegistryClient(
+def client() -> LocationRegistrySyncClient:
+    return LocationRegistrySyncClient(
         base_url=BASE_URL,
         api_key=API_KEY,
         timeout=2.0,
@@ -86,12 +84,12 @@ def client() -> LocationRegistryClient:
     )
 
 
-# ── Building tests ──────────────────────────────────────────────
+# ── Building tests ──────────────────────────────────────────────────
 
 
 @respx.mock
-async def test_get_building(
-    client: LocationRegistryClient,
+def test_get_building(
+    client: LocationRegistrySyncClient,
     sample_building_payload: dict,
 ) -> None:
     respx.get(f"{BASE_URL}/buildings/77C2XF2G%2B4V").mock(
@@ -100,47 +98,47 @@ async def test_get_building(
         )
     )
 
-    building = await client.get_building("77C2XF2G+4V")
+    building = client.get_building("77C2XF2G+4V")
     assert isinstance(building, Building)
     assert building.id == "b-001"
     assert building.plus_code == "77C2XF2G+4V"
     assert building.confidence_tier == "ml-high"
-    await client.close()
+    client.close()
 
 
 @respx.mock
-async def test_search_buildings(
-    client: LocationRegistryClient,
+def test_search_buildings(
+    client: LocationRegistrySyncClient,
     sample_building_payload: dict,
 ) -> None:
-    envelope = _paginated_envelope(
-        [sample_building_payload],
-        total=48000,
-        has_more=True,
-        next_cursor="abc",
-    )
     respx.get(f"{BASE_URL}/buildings").mock(
-        return_value=httpx.Response(200, json=envelope)
+        return_value=httpx.Response(
+            200,
+            json=_paginated_envelope(
+                [sample_building_payload],
+                total=48000,
+                has_more=True,
+                next_cursor="abc",
+            ),
+        )
     )
 
-    result = await client.search_buildings(
-        island_id="i-np", limit=50,
-    )
+    result = client.search_buildings(island_id="i-np", limit=50)
     assert isinstance(result, PaginatedResult)
     assert len(result.data) == 1
     assert isinstance(result.data[0], Building)
     assert result.total == 48000
     assert result.has_more is True
     assert result.next_cursor == "abc"
-    await client.close()
+    client.close()
 
 
-# ── Road tests ──────────────────────────────────────────────────
+# ── Road tests ──────────────────────────────────────────────────────
 
 
 @respx.mock
-async def test_get_road(
-    client: LocationRegistryClient,
+def test_get_road(
+    client: LocationRegistrySyncClient,
     sample_road_payload: dict,
 ) -> None:
     respx.get(f"{BASE_URL}/roads/r-001").mock(
@@ -149,38 +147,40 @@ async def test_get_road(
         )
     )
 
-    road = await client.get_road("r-001")
+    road = client.get_road("r-001")
     assert isinstance(road, Road)
     assert road.road_class == "primary"
     assert road.name == "Bay Street"
-    await client.close()
+    client.close()
 
 
 @respx.mock
-async def test_search_roads(
-    client: LocationRegistryClient,
+def test_search_roads(
+    client: LocationRegistrySyncClient,
     sample_road_payload: dict,
 ) -> None:
-    envelope = _paginated_envelope(
-        [sample_road_payload], total=5200,
-    )
     respx.get(f"{BASE_URL}/roads").mock(
-        return_value=httpx.Response(200, json=envelope)
+        return_value=httpx.Response(
+            200,
+            json=_paginated_envelope(
+                [sample_road_payload], total=5200,
+            ),
+        )
     )
 
-    result = await client.search_roads(name="Bay")
+    result = client.search_roads(name="Bay")
     assert isinstance(result, PaginatedResult)
     assert len(result.data) == 1
     assert isinstance(result.data[0], Road)
-    await client.close()
+    client.close()
 
 
-# ── Geocoding tests ─────────────────────────────────────────────
+# ── Geocoding tests ─────────────────────────────────────────────────
 
 
 @respx.mock
-async def test_reverse_geocode(
-    client: LocationRegistryClient,
+def test_reverse_geocode(
+    client: LocationRegistrySyncClient,
     sample_building_payload: dict,
     sample_road_payload: dict,
 ) -> None:
@@ -198,16 +198,16 @@ async def test_reverse_geocode(
         )
     )
 
-    result = await client.reverse_geocode(25.06, -77.35)
+    result = client.reverse_geocode(25.06, -77.35)
     assert isinstance(result, ReverseGeocodeResult)
     assert result.plus_code == "77C2XF2G+4V"
     assert result.nearest_building is not None
-    await client.close()
+    client.close()
 
 
 @respx.mock
-async def test_geocode(
-    client: LocationRegistryClient,
+def test_geocode(
+    client: LocationRegistrySyncClient,
     sample_building_payload: dict,
 ) -> None:
     payload = [
@@ -231,19 +231,19 @@ async def test_geocode(
         )
     )
 
-    results = await client.geocode("Bay Street")
+    results = client.geocode("Bay Street")
     assert len(results) == 1
     assert isinstance(results[0], GeocodeResult)
     assert results[0].score == 0.95
-    await client.close()
+    client.close()
 
 
-# ── Plus Code tests ─────────────────────────────────────────────
+# ── Plus Code tests ─────────────────────────────────────────────────
 
 
 @respx.mock
-async def test_encode_plus_code(
-    client: LocationRegistryClient,
+def test_encode_plus_code(
+    client: LocationRegistrySyncClient,
 ) -> None:
     payload = {
         "code": "77C2XF2G+4V",
@@ -258,16 +258,16 @@ async def test_encode_plus_code(
         )
     )
 
-    result = await client.encode_plus_code(25.06, -77.35)
+    result = client.encode_plus_code(25.06, -77.35)
     assert isinstance(result, PlusCodeResult)
     assert result.code == "77C2XF2G+4V"
     assert result.is_full is True
-    await client.close()
+    client.close()
 
 
 @respx.mock
-async def test_decode_plus_code(
-    client: LocationRegistryClient,
+def test_decode_plus_code(
+    client: LocationRegistrySyncClient,
 ) -> None:
     payload = {
         "code": "77C2XF2G+4V",
@@ -286,15 +286,15 @@ async def test_decode_plus_code(
         )
     )
 
-    result = await client.decode_plus_code("77C2XF2G+4V")
+    result = client.decode_plus_code("77C2XF2G+4V")
     assert isinstance(result, PlusCodeResult)
     assert result.south == 25.059
-    await client.close()
+    client.close()
 
 
 @respx.mock
-async def test_validate_plus_code(
-    client: LocationRegistryClient,
+def test_validate_plus_code(
+    client: LocationRegistrySyncClient,
 ) -> None:
     respx.get(f"{BASE_URL}/pluscode/validate").mock(
         return_value=httpx.Response(
@@ -305,78 +305,74 @@ async def test_validate_plus_code(
         )
     )
 
-    valid = await client.validate_plus_code("77C2XF2G+4V")
+    valid = client.validate_plus_code("77C2XF2G+4V")
     assert valid is True
-    await client.close()
+    client.close()
 
 
-# ── Island tests ────────────────────────────────────────────────
+# ── Island tests ────────────────────────────────────────────────────
 
 
 @respx.mock
-async def test_list_islands(
-    client: LocationRegistryClient,
+def test_list_islands(
+    client: LocationRegistrySyncClient,
     sample_island_payload: dict,
 ) -> None:
     respx.get(f"{BASE_URL}/islands").mock(
         return_value=httpx.Response(
-            200,
-            json=_api_envelope([sample_island_payload]),
+            200, json=_api_envelope([sample_island_payload]),
         )
     )
 
-    islands = await client.list_islands()
+    islands = client.list_islands()
     assert len(islands) == 1
     assert isinstance(islands[0], Island)
     assert islands[0].name == "New Providence"
-    await client.close()
+    client.close()
 
 
 @respx.mock
-async def test_get_island(
-    client: LocationRegistryClient,
+def test_get_island(
+    client: LocationRegistrySyncClient,
     sample_island_payload: dict,
 ) -> None:
     respx.get(f"{BASE_URL}/islands/i-np").mock(
         return_value=httpx.Response(
-            200,
-            json=_api_envelope(sample_island_payload),
+            200, json=_api_envelope(sample_island_payload),
         )
     )
 
-    island = await client.get_island("i-np")
+    island = client.get_island("i-np")
     assert isinstance(island, Island)
     assert island.inhabited is True
-    await client.close()
+    client.close()
 
 
 @respx.mock
-async def test_get_island_stats(
-    client: LocationRegistryClient,
+def test_get_island_stats(
+    client: LocationRegistrySyncClient,
     sample_island_stats_payload: dict,
 ) -> None:
     respx.get(f"{BASE_URL}/islands/i-np/stats").mock(
         return_value=httpx.Response(
             200,
-            json=_api_envelope(
-                sample_island_stats_payload,
-            ),
+            json=_api_envelope(sample_island_stats_payload),
         )
     )
 
-    stats = await client.get_island_stats("i-np")
+    stats = client.get_island_stats("i-np")
     assert isinstance(stats, IslandStats)
     assert stats.total_buildings == 48000
     assert stats.coverage_percent == 85.5
-    await client.close()
+    client.close()
 
 
-# ── Health tests ────────────────────────────────────────────────
+# ── Health tests ────────────────────────────────────────────────────
 
 
 @respx.mock
-async def test_health_check(
-    client: LocationRegistryClient,
+def test_health_check(
+    client: LocationRegistrySyncClient,
 ) -> None:
     payload = {
         "status": "ready",
@@ -388,39 +384,37 @@ async def test_health_check(
         )
     )
 
-    health = await client.health_check()
+    health = client.health_check()
     assert isinstance(health, HealthStatus)
     assert health.status == "ready"
     assert health.checks.database is True
-    await client.close()
+    client.close()
 
 
-# ── Error handling tests ────────────────────────────────────────
+# ── Error handling tests ────────────────────────────────────────────
 
 
 @respx.mock
-async def test_404_raises_not_found(
-    client: LocationRegistryClient,
+def test_404_raises_not_found(
+    client: LocationRegistrySyncClient,
 ) -> None:
     respx.get(f"{BASE_URL}/buildings/INVALID").mock(
         return_value=httpx.Response(
             404,
-            json=_error_envelope(
-                "NOT_FOUND", "Building not found",
-            ),
+            json=_error_envelope("NOT_FOUND", "Building not found"),
         )
     )
 
     with pytest.raises(NotFoundError) as exc_info:
-        await client.get_building("INVALID")
+        client.get_building("INVALID")
     assert exc_info.value.status_code == 404
     assert exc_info.value.code == "NOT_FOUND"
-    await client.close()
+    client.close()
 
 
 @respx.mock
-async def test_400_raises_validation_error(
-    client: LocationRegistryClient,
+def test_400_raises_validation_error(
+    client: LocationRegistrySyncClient,
 ) -> None:
     respx.get(f"{BASE_URL}/pluscode/validate").mock(
         return_value=httpx.Response(
@@ -432,14 +426,14 @@ async def test_400_raises_validation_error(
     )
 
     with pytest.raises(ValidationError) as exc_info:
-        await client.validate_plus_code("bad")
+        client.validate_plus_code("bad")
     assert exc_info.value.status_code == 400
-    await client.close()
+    client.close()
 
 
 @respx.mock
-async def test_429_raises_rate_limit(
-    client: LocationRegistryClient,
+def test_429_raises_rate_limit(
+    client: LocationRegistrySyncClient,
 ) -> None:
     respx.get(f"{BASE_URL}/buildings").mock(
         return_value=httpx.Response(
@@ -452,111 +446,101 @@ async def test_429_raises_rate_limit(
     )
 
     with pytest.raises(RateLimitError) as exc_info:
-        await client.search_buildings()
+        client.search_buildings()
     assert exc_info.value.retry_after == 30.0
-    await client.close()
+    client.close()
 
 
-# ── Retry tests ─────────────────────────────────────────────────
+# ── Retry tests ─────────────────────────────────────────────────────
 
 
 @respx.mock
-async def test_5xx_triggers_retry(
-    client: LocationRegistryClient,
+def test_5xx_triggers_retry(
+    client: LocationRegistrySyncClient,
     sample_building_payload: dict,
 ) -> None:
-    route = respx.get(
-        f"{BASE_URL}/buildings/77C2XF2G%2B4V",
-    )
+    route = respx.get(f"{BASE_URL}/buildings/77C2XF2G%2B4V")
     route.side_effect = [
         httpx.Response(
-            503,
-            json=_error_envelope("UNAVAILABLE", "Down"),
+            503, json=_error_envelope("UNAVAILABLE", "Down"),
         ),
         httpx.Response(
-            200,
-            json=_api_envelope(sample_building_payload),
+            200, json=_api_envelope(sample_building_payload),
         ),
     ]
 
-    building = await client.get_building("77C2XF2G+4V")
+    building = client.get_building("77C2XF2G+4V")
     assert isinstance(building, Building)
     assert route.call_count == 2
-    await client.close()
+    client.close()
 
 
 @respx.mock
-async def test_5xx_exhausts_retries(
-    client: LocationRegistryClient,
+def test_5xx_exhausts_retries(
+    client: LocationRegistrySyncClient,
 ) -> None:
     respx.get(f"{BASE_URL}/buildings/77C2XF2G%2B4V").mock(
         return_value=httpx.Response(
-            503,
-            json=_error_envelope("UNAVAILABLE", "Down"),
+            503, json=_error_envelope("UNAVAILABLE", "Down"),
         )
     )
 
     with pytest.raises(ServiceUnavailableError):
-        await client.get_building("77C2XF2G+4V")
-    await client.close()
+        client.get_building("77C2XF2G+4V")
+    client.close()
 
 
-# ── Circuit breaker tests ───────────────────────────────────────
+# ── Circuit breaker tests ───────────────────────────────────────────
 
 
 @respx.mock
-async def test_circuit_breaker_opens_after_failures(
-    client: LocationRegistryClient,
+def test_circuit_breaker_opens_after_failures(
+    client: LocationRegistrySyncClient,
 ) -> None:
     respx.get(f"{BASE_URL}/health/ready").mock(
         return_value=httpx.Response(
-            503,
-            json=_error_envelope("UNAVAILABLE", "Down"),
+            503, json=_error_envelope("UNAVAILABLE", "Down"),
         )
     )
 
     for _ in range(3):
         with pytest.raises(ServiceUnavailableError):
-            await client.health_check()
+            client.health_check()
 
     with pytest.raises(CircuitOpenError):
-        await client.health_check()
-    await client.close()
+        client.health_check()
+    client.close()
 
 
-# ── Client lifecycle tests ──────────────────────────────────────
+# ── Client lifecycle tests ──────────────────────────────────────────
 
 
 @respx.mock
-async def test_close_cleans_up(
-    client: LocationRegistryClient,
+def test_close_cleans_up(
+    client: LocationRegistrySyncClient,
 ) -> None:
-    await client.close()
+    client.close()
     assert client._http.is_closed
 
 
 @respx.mock
-async def test_context_manager() -> None:
-    async with LocationRegistryClient(
-        BASE_URL, API_KEY,
-    ) as client:
+def test_context_manager() -> None:
+    with LocationRegistrySyncClient(BASE_URL, API_KEY) as client:
         assert not client._http.is_closed
     assert client._http.is_closed
 
 
 @respx.mock
-async def test_api_key_header(
-    client: LocationRegistryClient,
+def test_api_key_header(
+    client: LocationRegistrySyncClient,
     sample_island_payload: dict,
 ) -> None:
     route = respx.get(f"{BASE_URL}/islands").mock(
         return_value=httpx.Response(
-            200,
-            json=_api_envelope([sample_island_payload]),
+            200, json=_api_envelope([sample_island_payload]),
         )
     )
 
-    await client.list_islands()
-    request_headers = route.calls[0].request.headers
-    assert request_headers["X-Api-Key"] == API_KEY
-    await client.close()
+    client.list_islands()
+    assert route.calls[0].request.headers["X-Api-Key"] == API_KEY
+    client.close()

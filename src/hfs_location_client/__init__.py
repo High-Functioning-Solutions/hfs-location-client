@@ -25,12 +25,14 @@ from hfs_location_client.models import (
     ReverseGeocodeResult,
     Road,
 )
+from hfs_location_client.sync_client import LocationRegistrySyncClient
 
 __all__ = [
     # Version
     "__version__",
-    # Client
+    # Clients
     "LocationRegistryClient",
+    "LocationRegistrySyncClient",
     # Models
     "Building",
     "Road",
