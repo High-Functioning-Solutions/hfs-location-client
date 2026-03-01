@@ -2,6 +2,7 @@
 
 __version__ = "0.1.0.dev0"
 
+from hfs_location_client.client import LocationRegistryClient
 from hfs_location_client.exceptions import (
     AuthError,
     CircuitOpenError,
@@ -28,6 +29,8 @@ from hfs_location_client.models import (
 __all__ = [
     # Version
     "__version__",
+    # Client
+    "LocationRegistryClient",
     # Models
     "Building",
     "Road",
